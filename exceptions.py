@@ -1,0 +1,2 @@
+class IncorrectEnvVariables(Exception):
+    pass 
