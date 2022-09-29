@@ -1,12 +1,17 @@
 import logging
 import os
+from attr import Attribute
 import requests
 import time
 
 from dotenv import load_dotenv
 from telegram import Bot
 
-from exceptions import IncorrectEnvVariables
+from exceptions import (BotCanNotSendMessage,
+                        IncorrectApiAnswer,
+                        IncorrectEnvVariables,
+                        IncorrectParseStatus,
+                        IncorrectResponse)
 from requests.exceptions import InvalidURL
 
 load_dotenv()
@@ -28,15 +33,22 @@ HOMEWORK_STATUSES = {
 
 logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s',
-    level=logging.INFO)
+    level=logging.DEBUG)
 logging.StreamHandler()
 
 
 def send_message(bot, message):
-    ...
+    """Отправляет сообщение в чат телеграм."""
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, message)
+    except Exception as e:
+        logging.error(f'Возникла непредвиденная ошибка: {e}. Отправка сообщения не возможна.')
+        raise BotCanNotSendMessage(f'Возникла непредвиденная ошибка: {e}. Отправка сообщения не возможна.')
+    else:
+        logging.info('Сообщение успешно отправлено!')
 
 
-def get_api_answer(current_timestamp: int) -> dict:
+def get_api_answer(current_timestamp) -> dict:
     """Делает запрос к API и возвращает статусы работ."""
     if type(current_timestamp) == int:
         timestamp = current_timestamp
@@ -44,45 +56,72 @@ def get_api_answer(current_timestamp: int) -> dict:
         timestamp = int(time.time())
     params = {'from_date': timestamp}
     try:
-        homeworks_statuses = requests.get(ENDPOINT, headers=HEADERS, params=params)
+        response = requests.get(ENDPOINT, headers=HEADERS, params=params)
+        if response.status_code != 200:
+            status_code = response.status_code
+            logging.error(f'Некорректный статус код: {status_code}')
+            raise IncorrectApiAnswer(f'Некорректный статус код: {status_code}')
+        return response.json()
     except InvalidURL:
-        logging.error("Некорректный адрес, проверьте значение постоянной 'ENDPOINT'")
+        logging.error('Некорректный адрес, проверьте значение постоянной "ENDPOINT"')
+        raise InvalidURL('Некорректный адрес, проверьте значение постоянной "ENDPOINT"')
+    except ValueError:
+        logging.error('Не удалось преобразовать статус работы к словарю.')
+        raise ValueError('Не удалось преобразовать статус работы к словарю.')
+    except AssertionError:
+        logging.error('Не удалось преобразовать статус работы к словарю.')
+        raise ValueError('Не удалось преобразовать статус работы к словарю.')
     except Exception as e:
-        logging.error(f"Возникла непредвиденная ошибка: {e}")
-    else:
-        return homeworks_statuses.json()
+        logging.error(f'Возникла непредвиденная ошибка: {e}')
+        raise IncorrectApiAnswer(f'Возникла непредвиденная ошибка: {e}')
 
 
-def check_response(response):
+def check_response(response: dict) -> list:
     """Проверяет ответ API на корректность."""
-    homeworks = response.get('homeworks')
-    if type(homeworks) is list:
+    if response is None:
+        logging.error('Переменная "response" не содержит ничего!')
+        raise IncorrectResponse('Некорректный ответ от API!')
+    if type(response) is not dict:
+        logging.error('Переменная "response" не словарь!')
+        raise IncorrectResponse('Некорректный ответ от API!')
+    if response.status_code != 200:
+        raise IncorrectResponse('У переменной "response" нет стату кода.')
+    try:
+        homeworks = response.get('homeworks')
+        # current_date = response.get('current_date')
         return homeworks
-    logging.error(f"Некорректный ответ от API! Значение ключа 'homeworks' отличается от ожидаемого {type(homeworks)} != list")
+    except AttributeError:
+        logging.error('Некорректный ответ от API!')
+        
+    # raise IncorrectResponse('Некорректный ответ от API!')
+    
     
 
 def parse_status(homework):
-    """Извлекает из информации о конкретной домашней работе статус этой работы."""
+    """Извлекает из информации о конкретной домашней работы статус этой работы."""
     homework_name = homework['homework_name']
     homework_status = homework['status']
 
-    ...
+    if homework_status is None:
+        logging.debug('Статус домашних работ не изменился.')
+        return False
 
-    verdict = ...
-
-    ...
-
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    if homework_status in HOMEWORK_STATUSES:
+        verdict = HOMEWORK_STATUSES[homework_status]
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    
+    logging.error(f'Недокументированный статус домашней работы {homework_status}.')
+    raise IncorrectParseStatus(f'Недокументированный статус домашней работы {homework_status}.')
 
 
 def check_tokens() -> bool:
     """Проверяет доступность переменных окружения."""
     if PRACTICUM_TOKEN is None:
-        logging.critical("Отсутствует обязательная переменная окружения: 'PRACTICUM_TOKEN'!")
+        logging.critical('Отсутствует обязательная переменная окружения: "PRACTICUM_TOKEN"!')
     if TELEGRAM_TOKEN is None:
-        logging.critical("Отсутствует обязательная переменная окружения: 'TELEGRAM_TOKEN!'")
+        logging.critical('Отсутствует обязательная переменная окружения: "TELEGRAM_TOKEN!"')
     if TELEGRAM_CHAT_ID is None:
-        logging.critical("Отсутствует обязательная переменная окружения: 'TELEGRAM_CHAT_ID!'")
+        logging.critical('Отсутствует обязательная переменная окружения: "TELEGRAM_CHAT_ID!"')
     return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
 
 
@@ -95,25 +134,41 @@ def main():
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
 
-    ...
-
     while True:
         try:
-            response = ...
+            response = get_api_answer(current_timestamp)
 
-            ...
+            if get_api_answer(current_timestamp) is None:
+                logging.error('Не удалось получить ответ от API!')
+                send_message(bot, 'Возникла проблема в функции "get_api_answer". Не удалось получить ответ!')
 
-            current_timestamp = ...
+            homework = check_response(response)
+            if homework is None:
+                logging.error('Не корректный ответ API!')
+                send_message(bot, 'Возникла проблема в функции "check_response". API не корректен.')
+
+            count_homework = len(homework)
+            if count_homework > 1:
+                homework_status = parse_status(homework[0])
+            else:
+                homework_status = parse_status(homework)
+            if homework_status:
+                send_message(bot, homework_status)
+
+
+            current_timestamp = int(time.time())
             time.sleep(RETRY_TIME)
-
+        except IncorrectApiAnswer as error:
+            message = 'Возникла непредвиденная ошибка в функции "get_api_answer".'
+            send_message(bot, message)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            ...
+            send_message(bot, message)
             time.sleep(RETRY_TIME)
         else:
-            ...
+            bot.start_polling()
+            bot.idle() 
 
 
 if __name__ == '__main__':
-    # main()
-    print(check_response({'homeworks': (12312312312, 123,), 'current_date': 15}))
+    main()
