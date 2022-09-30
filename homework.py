@@ -50,11 +50,10 @@ def send_message(bot, message):
 
 def get_api_answer(current_timestamp) -> dict:
     """Делает запрос к API и возвращает статусы работ."""
-    if type(current_timestamp) == int:
-        timestamp = current_timestamp
-    else:
-        timestamp = int(time.time())
+    timestamp = current_timestamp or int(time.time())
+
     params = {'from_date': timestamp}
+
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         if response.status_code != 200:
@@ -83,12 +82,16 @@ def check_response(response: dict) -> list:
         raise IncorrectResponse('Некорректный ответ от API!')
     if type(response) is not dict:
         logging.error('Переменная "response" не словарь!')
-        raise IncorrectResponse('Некорректный ответ от API!')
-    if response.status_code != 200:
-        raise IncorrectResponse('У переменной "response" нет стату кода.')
+        raise TypeError('Некорректный ответ от API!')
+    if response == {}:
+        logging.error('Переменная "response" содержит пустой словарь!')
+        raise IncorrectResponse('Переменная "response" содержит пустой словарь!')
+    
     try:
         homeworks = response.get('homeworks')
-        # current_date = response.get('current_date')
+        if type(homeworks) is not list:
+            logging.error('Домашки пришли не ввиде списка!')
+            raise IncorrectResponse('Домашки пришли не ввиде списка!')
         return homeworks
     except AttributeError:
         logging.error('Некорректный ответ от API!')
@@ -172,3 +175,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    # get_api_answer(0)
