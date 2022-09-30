@@ -1,6 +1,5 @@
 import logging
 import os
-from attr import Attribute
 import requests
 import time
 
@@ -42,8 +41,12 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except Exception as e:
-        logging.error(f'Возникла непредвиденная ошибка: {e}. Отправка сообщения не возможна.')
-        raise BotCanNotSendMessage(f'Возникла непредвиденная ошибка: {e}. Отправка сообщения не возможна.')
+        logging.error(
+            f'Возникла непредвиденная ошибка: {e}.'
+            ' Отправка сообщения не возможна.')
+        raise BotCanNotSendMessage(
+            f'Возникла непредвиденная ошибка: {e}. '
+            'Отправка сообщения не возможна.')
     else:
         logging.info('Сообщение успешно отправлено!')
 
@@ -62,8 +65,8 @@ def get_api_answer(current_timestamp) -> dict:
             raise IncorrectApiAnswer(f'Некорректный статус код: {status_code}')
         return response.json()
     except InvalidURL:
-        logging.error('Некорректный адрес, проверьте значение постоянной "ENDPOINT"')
-        raise InvalidURL('Некорректный адрес, проверьте значение постоянной "ENDPOINT"')
+        logging.error('Проверьте значение постоянной "ENDPOINT"')
+        raise InvalidURL('Проверьте значение постоянной "ENDPOINT"')
     except ValueError:
         logging.error('Не удалось преобразовать статус работы к словарю.')
         raise ValueError('Не удалось преобразовать статус работы к словарю.')
@@ -84,9 +87,9 @@ def check_response(response: dict) -> list:
         logging.error('Переменная "response" не словарь!')
         raise TypeError('Некорректный ответ от API!')
     if response == {}:
-        logging.error('Переменная "response" содержит пустой словарь!')
-        raise IncorrectResponse('Переменная "response" содержит пустой словарь!')
-    
+        logging.error('П"response" содержит пустой словарь!')
+        raise IncorrectResponse('"response" содержит пустой словарь!')
+
     try:
         homeworks = response.get('homeworks')
         if type(homeworks) is not list:
@@ -95,13 +98,10 @@ def check_response(response: dict) -> list:
         return homeworks
     except AttributeError:
         logging.error('Некорректный ответ от API!')
-        
-    # raise IncorrectResponse('Некорректный ответ от API!')
-    
-    
+
 
 def parse_status(homework):
-    """Извлекает из информации о конкретной домашней работы статус этой работы."""
+    """Извлекает из информации о конкретной домашней работы статус работы."""
     homework_name = homework['homework_name']
     homework_status = homework['status']
 
@@ -112,27 +112,33 @@ def parse_status(homework):
     if homework_status in HOMEWORK_STATUSES:
         verdict = HOMEWORK_STATUSES[homework_status]
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    
-    logging.error(f'Недокументированный статус домашней работы {homework_status}.')
-    raise IncorrectParseStatus(f'Недокументированный статус домашней работы {homework_status}.')
+
+    logging.error(f'Неизвестный статус домашней работы {homework_status}.')
+    raise IncorrectParseStatus(
+        f'Неизвестный статус домашней работы {homework_status}.')
 
 
 def check_tokens() -> bool:
     """Проверяет доступность переменных окружения."""
     if PRACTICUM_TOKEN is None:
-        logging.critical('Отсутствует обязательная переменная окружения: "PRACTICUM_TOKEN"!')
+        logging.critical(
+            'Отсутствует обязательная переменная окружения: '
+            '"PRACTICUM_TOKEN"!')
     if TELEGRAM_TOKEN is None:
-        logging.critical('Отсутствует обязательная переменная окружения: "TELEGRAM_TOKEN!"')
+        logging.critical(
+            'Отсутствует обязательная переменная окружения: '
+            '"TELEGRAM_TOKEN!"')
     if TELEGRAM_CHAT_ID is None:
-        logging.critical('Отсутствует обязательная переменная окружения: "TELEGRAM_CHAT_ID!"')
+        logging.critical(
+            'Отсутствует обязательная переменная окружения: '
+            '"TELEGRAM_CHAT_ID!"')
     return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
 
 
 def main():
     """Основная логика работы бота."""
-
     if not check_tokens():
-        raise IncorrectEnvVariables('Некоторые переменные окружения не доступны!')
+        raise IncorrectEnvVariables('Переменные окружения не доступны!')
 
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
@@ -143,12 +149,18 @@ def main():
 
             if get_api_answer(current_timestamp) is None:
                 logging.error('Не удалось получить ответ от API!')
-                send_message(bot, 'Возникла проблема в функции "get_api_answer". Не удалось получить ответ!')
+                send_message(
+                    bot,
+                    'Проблема в "get_api_answer". Не удалось получить ответ!'
+                )
 
             homework = check_response(response)
             if homework is None:
                 logging.error('Не корректный ответ API!')
-                send_message(bot, 'Возникла проблема в функции "check_response". API не корректен.')
+                send_message(
+                    bot,
+                    'Проблема в функции "check_response". API некорректен.'
+                )
 
             count_homework = len(homework)
             if count_homework > 1:
@@ -158,11 +170,11 @@ def main():
             if homework_status:
                 send_message(bot, homework_status)
 
-
             current_timestamp = int(time.time())
             time.sleep(RETRY_TIME)
         except IncorrectApiAnswer as error:
-            message = 'Возникла непредвиденная ошибка в функции "get_api_answer".'
+            message = ('Возникла непредвиденная ошибка'
+                       f' в функции "get_api_answer": {error}')
             send_message(bot, message)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
@@ -170,9 +182,8 @@ def main():
             time.sleep(RETRY_TIME)
         else:
             bot.start_polling()
-            bot.idle() 
+            bot.idle()
 
 
 if __name__ == '__main__':
     main()
-    # get_api_answer(0)
