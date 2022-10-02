@@ -13,6 +13,7 @@ from exceptions import (BotCanNotSendMessage,
                         IncorrectResponse)
 from requests.exceptions import InvalidURL
 
+
 load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
@@ -24,16 +25,18 @@ ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
 
-HOMEWORK_STATUSES = {
+HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-logging.basicConfig(
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    level=logging.DEBUG)
-logging.StreamHandler()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 
 def send_message(bot, message):
@@ -41,14 +44,14 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except Exception as e:
-        logging.error(
+        logger.error(
             f'Возникла непредвиденная ошибка: {e}.'
             ' Отправка сообщения не возможна.')
         raise BotCanNotSendMessage(
             f'Возникла непредвиденная ошибка: {e}. '
             'Отправка сообщения не возможна.')
     else:
-        logging.info('Сообщение успешно отправлено!')
+        logger.info('Сообщение успешно отправлено!')
 
 
 def get_api_answer(current_timestamp) -> dict:
@@ -61,43 +64,43 @@ def get_api_answer(current_timestamp) -> dict:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         if response.status_code != 200:
             status_code = response.status_code
-            logging.error(f'Некорректный статус код: {status_code}')
+            logger.error(f'Некорректный статус код: {status_code}')
             raise IncorrectApiAnswer(f'Некорректный статус код: {status_code}')
         return response.json()
     except InvalidURL:
-        logging.error('Проверьте значение постоянной "ENDPOINT"')
+        logger.error('Проверьте значение постоянной "ENDPOINT"')
         raise InvalidURL('Проверьте значение постоянной "ENDPOINT"')
     except ValueError:
-        logging.error('Не удалось преобразовать статус работы к словарю.')
+        logger.error('Не удалось преобразовать статус работы к словарю.')
         raise ValueError('Не удалось преобразовать статус работы к словарю.')
     except AssertionError:
-        logging.error('Не удалось преобразовать статус работы к словарю.')
+        logger.error('Не удалось преобразовать статус работы к словарю.')
         raise ValueError('Не удалось преобразовать статус работы к словарю.')
     except Exception as e:
-        logging.error(f'Возникла непредвиденная ошибка: {e}')
+        logger.error(f'Возникла непредвиденная ошибка: {e}')
         raise IncorrectApiAnswer(f'Возникла непредвиденная ошибка: {e}')
 
 
 def check_response(response: dict) -> list:
     """Проверяет ответ API на корректность."""
     if response is None:
-        logging.error('Переменная "response" не содержит ничего!')
+        logger.error('Переменная "response" не содержит ничего!')
         raise IncorrectResponse('Некорректный ответ от API!')
     if type(response) is not dict:
-        logging.error('Переменная "response" не словарь!')
+        logger.error('Переменная "response" не словарь!')
         raise TypeError('Некорректный ответ от API!')
     if response == {}:
-        logging.error('П"response" содержит пустой словарь!')
+        logger.error('П"response" содержит пустой словарь!')
         raise IncorrectResponse('"response" содержит пустой словарь!')
 
     try:
         homeworks = response.get('homeworks')
         if type(homeworks) is not list:
-            logging.error('Домашки пришли не ввиде списка!')
+            logger.error('Домашки пришли не ввиде списка!')
             raise IncorrectResponse('Домашки пришли не ввиде списка!')
         return homeworks
     except AttributeError:
-        logging.error('Некорректный ответ от API!')
+        logger.error('Некорректный ответ от API!')
 
 
 def parse_status(homework):
@@ -106,14 +109,14 @@ def parse_status(homework):
     homework_status = homework['status']
 
     if homework_status is None:
-        logging.debug('Статус домашних работ не изменился.')
+        logger.debug('Статус домашних работ не изменился.')
         return False
 
-    if homework_status in HOMEWORK_STATUSES:
-        verdict = HOMEWORK_STATUSES[homework_status]
+    if homework_status in HOMEWORK_VERDICTS:
+        verdict = HOMEWORK_VERDICTS[homework_status]
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
-    logging.error(f'Неизвестный статус домашней работы {homework_status}.')
+    logger.error(f'Неизвестный статус домашней работы {homework_status}.')
     raise IncorrectParseStatus(
         f'Неизвестный статус домашней работы {homework_status}.')
 
@@ -121,15 +124,15 @@ def parse_status(homework):
 def check_tokens() -> bool:
     """Проверяет доступность переменных окружения."""
     if PRACTICUM_TOKEN is None:
-        logging.critical(
+        logger.critical(
             'Отсутствует обязательная переменная окружения: '
             '"PRACTICUM_TOKEN"!')
     if TELEGRAM_TOKEN is None:
-        logging.critical(
+        logger.critical(
             'Отсутствует обязательная переменная окружения: '
             '"TELEGRAM_TOKEN!"')
     if TELEGRAM_CHAT_ID is None:
-        logging.critical(
+        logger.critical(
             'Отсутствует обязательная переменная окружения: '
             '"TELEGRAM_CHAT_ID!"')
     return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
@@ -148,7 +151,7 @@ def main():
             response = get_api_answer(current_timestamp)
 
             if get_api_answer(current_timestamp) is None:
-                logging.error('Не удалось получить ответ от API!')
+                logger.error('Не удалось получить ответ от API!')
                 send_message(
                     bot,
                     'Проблема в "get_api_answer". Не удалось получить ответ!'
@@ -156,7 +159,7 @@ def main():
 
             homework = check_response(response)
             if homework is None:
-                logging.error('Не корректный ответ API!')
+                logger.error('Не корректный ответ API!')
                 send_message(
                     bot,
                     'Проблема в функции "check_response". API некорректен.'
@@ -186,4 +189,5 @@ def main():
 
 
 if __name__ == '__main__':
+
     main()
