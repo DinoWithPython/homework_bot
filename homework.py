@@ -1,6 +1,7 @@
 import logging
 import os
 import requests
+import sys
 import time
 
 from dotenv import load_dotenv
@@ -77,45 +78,38 @@ def check_response(response: dict) -> list:
     return homeworks
 
 
-def parse_status(homework):
+def parse_status(homework: dict) -> str:
     """Извлекает из информации о конкретной домашней работы статус работы."""
-    homework_name = homework['homework_name']
-    homework_status = homework['status']
-
+    if not isinstance(homework, dict):
+        raise ParseStatusError('Переменная "homework" не словарь!')
+    homework_name = homework.get('homework_name')
+    homework_status = homework.get('status')
+    if homework_name is None:
+        raise KeyError('Отсутствует ключ "homework_name"!')
     if homework_status is None:
         logger.debug('Статус домашних работ не изменился.')
-        return False
 
     if homework_status in HOMEWORK_VERDICTS:
         verdict = HOMEWORK_VERDICTS[homework_status]
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-
-    logger.error(f'Неизвестный статус домашней работы {homework_status}.')
     raise ParseStatusError(
         f'Неизвестный статус домашней работы {homework_status}.')
 
 
 def check_tokens() -> bool:
     """Проверяет доступность переменных окружения."""
-    if PRACTICUM_TOKEN is None:
-        logger.critical(
-            'Отсутствует обязательная переменная окружения: '
-            '"PRACTICUM_TOKEN"!')
-    if TELEGRAM_TOKEN is None:
-        logger.critical(
-            'Отсутствует обязательная переменная окружения: '
-            '"TELEGRAM_TOKEN!"')
-    if TELEGRAM_CHAT_ID is None:
-        logger.critical(
-            'Отсутствует обязательная переменная окружения: '
-            '"TELEGRAM_CHAT_ID!"')
+    for token in (PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID):
+        if token is None:
+            logger.critical(
+                'Отсутствует обязательная переменная окружения: '
+                f'"{token}"!')
     return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
 
 
 def main():
     """Основная логика работы бота."""
     if not check_tokens():
-        raise EnvVariablesError('Переменные окружения не доступны!')
+        sys.exit(0)
 
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
@@ -124,7 +118,7 @@ def main():
         try:
             response = get_api_answer(current_timestamp)
 
-            if get_api_answer(current_timestamp) is None:
+            if response is None:
                 logger.error('Не удалось получить ответ от API!')
                 send_message(
                     bot,
@@ -132,13 +126,6 @@ def main():
                 )
 
             homework = check_response(response)
-            if homework is None:
-                logger.error('Не корректный ответ API!')
-                send_message(
-                    bot,
-                    'Проблема в функции "check_response". API некорректен.'
-                )
-
             count_homework = len(homework)
             if count_homework > 1:
                 homework_status = parse_status(homework[0])
@@ -148,7 +135,6 @@ def main():
                 send_message(bot, homework_status)
 
             current_timestamp = int(time.time())
-            time.sleep(RETRY_TIME)
         except BotMessageError as ex:
             logger.error(ex)
         except (ApiAnswerError,
@@ -160,6 +146,8 @@ def main():
         else:
             bot.start_polling()
             bot.idle()
+        finally:
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
