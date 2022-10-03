@@ -6,12 +6,11 @@ import time
 from dotenv import load_dotenv
 from telegram import Bot
 
-from exceptions import (BotCanNotSendMessage,
-                        IncorrectApiAnswer,
-                        IncorrectEnvVariables,
-                        IncorrectParseStatus,
-                        IncorrectResponse)
-from requests.exceptions import InvalidURL
+from exceptions import (ApiAnswerError,
+                        BotMessageError,
+                        EnvVariablesError,
+                        ParseStatusError,
+                        ResponseError)
 
 
 load_dotenv()
@@ -33,8 +32,8 @@ HOMEWORK_VERDICTS = {
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+handler = logging.StreamHandler()
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
@@ -44,12 +43,8 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except Exception as e:
-        logger.error(
-            f'Возникла непредвиденная ошибка: {e}.'
-            ' Отправка сообщения не возможна.')
-        raise BotCanNotSendMessage(
-            f'Возникла непредвиденная ошибка: {e}. '
-            'Отправка сообщения не возможна.')
+        raise BotMessageError(
+            f'Отправка сообщения невозможна: {e}')
     else:
         logger.info('Сообщение успешно отправлено!')
 
@@ -57,50 +52,29 @@ def send_message(bot, message):
 def get_api_answer(current_timestamp) -> dict:
     """Делает запрос к API и возвращает статусы работ."""
     timestamp = current_timestamp or int(time.time())
-
     params = {'from_date': timestamp}
 
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         if response.status_code != 200:
-            status_code = response.status_code
-            logger.error(f'Некорректный статус код: {status_code}')
-            raise IncorrectApiAnswer(f'Некорректный статус код: {status_code}')
+            raise ApiAnswerError(
+                f'Некорректный статус код: {response.status_code}'
+            )
         return response.json()
-    except InvalidURL:
-        logger.error('Проверьте значение постоянной "ENDPOINT"')
-        raise InvalidURL('Проверьте значение постоянной "ENDPOINT"')
-    except ValueError:
-        logger.error('Не удалось преобразовать статус работы к словарю.')
-        raise ValueError('Не удалось преобразовать статус работы к словарю.')
-    except AssertionError:
-        logger.error('Не удалось преобразовать статус работы к словарю.')
-        raise ValueError('Не удалось преобразовать статус работы к словарю.')
     except Exception as e:
-        logger.error(f'Возникла непредвиденная ошибка: {e}')
-        raise IncorrectApiAnswer(f'Возникла непредвиденная ошибка: {e}')
+        raise ApiAnswerError(f'Возникла ошибка: {e}')
 
 
 def check_response(response: dict) -> list:
     """Проверяет ответ API на корректность."""
-    if response is None:
-        logger.error('Переменная "response" не содержит ничего!')
-        raise IncorrectResponse('Некорректный ответ от API!')
-    if type(response) is not dict:
-        logger.error('Переменная "response" не словарь!')
-        raise TypeError('Некорректный ответ от API!')
-    if response == {}:
-        logger.error('П"response" содержит пустой словарь!')
-        raise IncorrectResponse('"response" содержит пустой словарь!')
-
-    try:
-        homeworks = response.get('homeworks')
-        if type(homeworks) is not list:
-            logger.error('Домашки пришли не ввиде списка!')
-            raise IncorrectResponse('Домашки пришли не ввиде списка!')
-        return homeworks
-    except AttributeError:
-        logger.error('Некорректный ответ от API!')
+    if isinstance(response, list):
+        response = response[0]
+    if not isinstance(response, dict):
+        raise ResponseError('Некорректный ответ от API!')
+    homeworks = response.get('homeworks')
+    if not isinstance(homeworks, list):
+        raise ResponseError('Домашки пришли не ввиде списка!')
+    return homeworks
 
 
 def parse_status(homework):
@@ -117,7 +91,7 @@ def parse_status(homework):
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
     logger.error(f'Неизвестный статус домашней работы {homework_status}.')
-    raise IncorrectParseStatus(
+    raise ParseStatusError(
         f'Неизвестный статус домашней работы {homework_status}.')
 
 
@@ -141,7 +115,7 @@ def check_tokens() -> bool:
 def main():
     """Основная логика работы бота."""
     if not check_tokens():
-        raise IncorrectEnvVariables('Переменные окружения не доступны!')
+        raise EnvVariablesError('Переменные окружения не доступны!')
 
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
@@ -175,19 +149,18 @@ def main():
 
             current_timestamp = int(time.time())
             time.sleep(RETRY_TIME)
-        except IncorrectApiAnswer as error:
-            message = ('Возникла непредвиденная ошибка'
-                       f' в функции "get_api_answer": {error}')
-            send_message(bot, message)
-        except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            send_message(bot, message)
-            time.sleep(RETRY_TIME)
+        except BotMessageError as ex:
+            logger.error(ex)
+        except (ApiAnswerError,
+                EnvVariablesError,
+                ParseStatusError,
+                ResponseError) as ex:
+            logger.error(ex)
+            send_message(bot, ex)
         else:
             bot.start_polling()
             bot.idle()
 
 
 if __name__ == '__main__':
-
     main()
