@@ -52,7 +52,10 @@ def send_message(bot, message):
 
 def get_api_answer(current_timestamp) -> dict:
     """Делает запрос к API и возвращает статусы работ."""
-    timestamp = current_timestamp or int(time.time())
+    if current_timestamp == 0:
+        timestamp = 0
+    else:
+        timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
 
     try:
